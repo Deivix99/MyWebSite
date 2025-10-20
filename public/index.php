@@ -16,7 +16,7 @@ function ym($d){ return $d ? date('M Y', strtotime($d)) : ''; }
 // Foto: usa profile.photo_url si existe, si no un archivo local
 $photo = isset($profile['photo_url']) && $profile['photo_url']
   ? $profile['photo_url']
-  : 'img/avatar.jpg'; // crea public/img/avatar.jpg con tu foto
+  : 'img/profile.jpg'; // crea public/img/avatar.jpg con tu foto
 
 // Links opcionales
 $linkedin = $profile['linkedin'] ?? '';
@@ -101,8 +101,10 @@ $cv_url   = $profile['resume_url'] ?? ''; // si agregas esta columna, muestra bo
 <body class="pb-5">
 <nav class="navbar navbar-dark sticky-top">
   <div class="container py-2">
-    <span class="fw-semibold"><span class="brand-dot me-2"></span><?=h($profile['full_name'] ?? 'Tu Nombre');?></span>
-    <a class="btn btn-sm btn-outline-light border-0" href="admin.php">Panel</a>
+<span class="fw-semibold">
+  <a href="admin.php" class="brand-dot me-2" aria-label="Ir al panel de administración"></a>
+  <?=h($profile['full_name'] ?? 'Tu Nombre');?>
+</span>
   </div>
 </nav>
 
@@ -118,16 +120,22 @@ $cv_url   = $profile['resume_url'] ?? ''; // si agregas esta columna, muestra bo
           <div>
             <h1 class="h4 m-0"><?=h($profile['full_name'] ?? 'Tu Nombre');?></h1>
             <div class="text-warning small"><?=h($profile['title'] ?? '')?></div>
+            <?php if(!empty($profile['location'])): ?><span class="text-warning small"><?=h($profile['location']);?></span><?php endif; ?><br>
+            <div class="text-warning small">Universidad Nacional</div>
+
           </div>
         </div>
 
         <hr class="my-3 opacity-25">
 
         <div class="d-flex flex-wrap gap-2">
-          <?php if(!empty($profile['location'])): ?><span class="chip"><?=h($profile['location']);?></span><?php endif; ?>
           <?php if(!empty($profile['email'])): ?><a class="chip" href="mailto:<?=h($profile['email']);?>">Email</a><?php endif; ?>
           <?php if($linkedin): ?><a class="chip" target="_blank" rel="noopener" href="<?=h($linkedin);?>">LinkedIn</a><?php endif; ?>
           <?php if($github):   ?><a class="chip" target="_blank" rel="noopener" href="<?=h($github);?>">GitHub</a><?php endif; ?>
+          <a class="chip" target="_blank" rel="noopener">CV</a> 
+          <a class="chip" target="_blank" rel="noopener">Telefono</a> 
+
+
         </div>
 
         <?php if($cv_url): ?>
@@ -211,8 +219,7 @@ $cv_url   = $profile['resume_url'] ?? ''; // si agregas esta columna, muestra bo
       </section>
 
       
-<footer class="container text-center text-secondary small my-4">
-  Hecho con ❤️, PHP nativo & SQL Server
-</footer>
+
 </body>
+
 </html>

@@ -50,48 +50,70 @@ function resolve_resources_photo(): ?string {
 if (isset($_POST['save_profile'])) {
   csrf_check();
   try {
-    // Resolver foto automáticamente desde /resources
-    $autoPhotoUrl = resolve_resources_photo(); // null si no hay imagen válida
+    // 1) Detectar foto automáticamente desde /resources (puede quedar null)
+    $autoPhotoUrl = resolve_resources_photo();
 
-    // Campos del perfil
-    $full_name  = $_POST['full_name']  ?? '';
-    $title      = $_POST['title']      ?? '';
-    $email      = $_POST['email']      ?? '';
-    $location   = $_POST['location']   ?? '';
-    $linkedin   = $_POST['linkedin']   ?? '';
-    $github     = $_POST['github']     ?? '';
-    $resume_url = $_POST['resume_url'] ?? '';
-    $summary    = $_POST['summary']    ?? '';
+    // 2) Campos del perfil (trim para limpiar espacios)
+    $full_name  = trim($_POST['full_name']  ?? '');
+    $title      = trim($_POST['title']      ?? '');
+    $email      = trim($_POST['email']      ?? '');
+    $location   = trim($_POST['location']   ?? '');
+    $linkedin   = trim($_POST['linkedin']   ?? '');
+    $github     = trim($_POST['github']     ?? '');
+    $summary    = trim($_POST['summary']    ?? '');
 
-    // ¿Existe perfil?
-    $row = $pdo->query("SELECT TOP 1 id, photo_url FROM dbo.profile ORDER BY id ASC")->fetch();
+    // 3) ¿Existe perfil?
+    $row = $pdo->query("SELECT TOP 1 id FROM dbo.profile ORDER BY id ASC")->fetch();
 
     if ($row) {
-      // UPDATE (si encontramos imagen en resources, actualizamos photo_url; si no, la dejamos como está)
-      $sql = "UPDATE dbo.profile
-              SET full_name=?, title=?, email=?, location=?, linkedin=?, github=?, resume_url=?, summary=?"
-              . ($autoPhotoUrl ? ", photo_url=?" : "")
-              . " WHERE id=?";
-      $params = [$full_name,$title,$email,$location,$linkedin,$github,$resume_url,$summary];
-      if ($autoPhotoUrl) $params[] = $autoPhotoUrl;
-      $params[] = (int)$row['id'];
-      $pdo->prepare($sql)->execute($params);
+      // UPDATE (sin resume_url)
+      $sql = "UPDATE dbo.profile SET
+                full_name = :full_name,
+                title     = :title,
+                email     = :email,
+                location  = :location,
+                linkedin  = :linkedin,
+                github    = :github,
+                summary   = :summary,
+                photo_url = COALESCE(:photo_url, photo_url)
+              WHERE id = :id";
+      $stmt = $pdo->prepare($sql);
+      $stmt->execute([
+        ':full_name'  => $full_name,
+        ':title'      => $title,
+        ':email'      => $email,
+        ':location'   => $location,
+        ':linkedin'   => $linkedin,
+        ':github'     => $github,
+        ':summary'    => $summary,
+        ':photo_url'  => $autoPhotoUrl, // null => conserva la existente
+        ':id'         => (int)$row['id'],
+      ]);
     } else {
-      // INSERT (guardamos lo que haya; si no hay imagen en resources, queda NULL y el front usa fallback)
-      $sql = "INSERT INTO dbo.profile(full_name,title,email,location,linkedin,github,resume_url,summary,photo_url)
-              VALUES (?,?,?,?,?,?,?,?,?)";
-      $pdo->prepare($sql)->execute([
-        $full_name,$title,$email,$location,$linkedin,$github,$resume_url,$summary,$autoPhotoUrl
+      // INSERT (sin resume_url)
+      $sql = "INSERT INTO dbo.profile
+                (full_name, title, email, location, linkedin, github, summary, photo_url)
+              VALUES
+                (:full_name, :title, :email, :location, :linkedin, :github, :summary, :photo_url)";
+      $stmt = $pdo->prepare($sql);
+      $stmt->execute([
+        ':full_name'  => $full_name,
+        ':title'      => $title,
+        ':email'      => $email,
+        ':location'   => $location,
+        ':linkedin'   => $linkedin,
+        ':github'     => $github,
+        ':summary'    => $summary,
+        ':photo_url'  => $autoPhotoUrl, // puede ser null
       ]);
     }
 
-    header('Location: admin.php?ok='.urlencode('Perfil guardado ✅')); exit;
+    header('Location: admin.php?ok=' . urlencode('Perfil guardado ✅')); exit;
 
   } catch (Throwable $e) {
     $err = "Error guardando perfil: " . $e->getMessage();
   }
 }
-
 
 
 // ----------------- Auth mínima -----------------
@@ -140,8 +162,11 @@ if(!$auth){
         <?php input('password','password','','••••••••') ?>
         <?php csrf_input(); ?>
         <input type="hidden" name="doLogin" value="1">
-        <button class="btn btn-brand mt-3 w-100">Entrar</button>
-        <div class="form-text mt-2">* Cambia la clave en <code>ADMIN_PASS</code></div>
+
+        <div class="d-grid gap-2 mt-3">
+          <button class="btn btn-brand">Entrar</button>
+          <a class="btn btn-outline-light" href="index.php">← Volver</a>
+        </div>
       </form>
     </div>
   </div>
@@ -476,7 +501,6 @@ if(isset($_GET['edit_skill'])){
   </section>
 
   <div class="my-4 divider"></div>
-  <div class="text-secondary small">Tip: en producción usa usuarios en BD con <code>password_hash()</code>, sesiones con expiración y protección CSRF (ya incluida) para formularios.</div>
 </div>
 </body>
 </html>
