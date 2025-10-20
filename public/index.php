@@ -16,7 +16,7 @@ function ym($d){ return $d ? date('M Y', strtotime($d)) : ''; }
 // Foto: usa profile.photo_url si existe, si no un archivo local
 $photo = isset($profile['photo_url']) && $profile['photo_url']
   ? $profile['photo_url']
-  : 'img/profile.jpg'; // crea public/img/avatar.jpg con tu foto
+  : 'img/profile/profile.jpg'; // crea public/img/avatar.jpg con tu foto
 
 // Links opcionales
 $linkedin = $profile['linkedin'] ?? '';
