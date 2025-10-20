@@ -13,15 +13,18 @@ $skills   = $pdo->query("
 
 function ym($d){ return $d ? date('M Y', strtotime($d)) : ''; }
 
-// Foto: usa profile.photo_url si existe, si no un archivo local
-$photo = isset($profile['photo_url']) && $profile['photo_url']
-  ? $profile['photo_url']
-  : 'img/profile.jpg'; // crea public/img/avatar.jpg con tu foto
+// Foto: usa profile.photo_url si existe; si no, usa el archivo fijo
+$photo = (!empty($profile['photo_url']))
+  ? $profile['photo_url']                       // e.g. "img/profile/profile.jpg" desde la BD
+  : 'img/profile/profile.jpg';                  // fallback local (ya en tu repo)
+
 
 // Links opcionales
 $linkedin = $profile['linkedin'] ?? '';
 $github   = $profile['github']   ?? '';
-$cv_url   = $profile['resume_url'] ?? ''; // si agregas esta columna, muestra botón de descarga
+$cv_url = $profile['resume_file'] ?? ''; // usamos la nueva columna
+$cv_file = $profile['resume_file'] ?? '';
+
 ?>
 <!doctype html>
 <html lang="es">
@@ -32,6 +35,9 @@ $cv_url   = $profile['resume_url'] ?? ''; // si agregas esta columna, muestra bo
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
   <style>
+
+    html { scroll-behavior: smooth; }
+
     :root{
       --bg:#0d0f14; --panel:#12151d; --panel-2:#121826; --card:#101523; --muted:#9aa7b3;
       --brand:#8bffcb; --brand-2:#62b2ff; --warn:#ffd166; --glass:rgba(255,255,255,.06);
@@ -108,6 +114,7 @@ $cv_url   = $profile['resume_url'] ?? ''; // si agregas esta columna, muestra bo
   </div>
 </nav>
 
+<div>
 <div class="container my-4">
   <div class="row g-3">
     <!-- ========== SIDEBAR (arriba en móvil, izquierda en desktop) ========== -->
@@ -128,19 +135,25 @@ $cv_url   = $profile['resume_url'] ?? ''; // si agregas esta columna, muestra bo
 
         <hr class="my-3 opacity-25">
 
-        <div class="d-flex flex-wrap gap-2">
-          <?php if(!empty($profile['email'])): ?><a class="chip" href="mailto:<?=h($profile['email']);?>">Email</a><?php endif; ?>
-          <?php if($linkedin): ?><a class="chip" target="_blank" rel="noopener" href="<?=h($linkedin);?>">LinkedIn</a><?php endif; ?>
-          <?php if($github):   ?><a class="chip" target="_blank" rel="noopener" href="<?=h($github);?>">GitHub</a><?php endif; ?>
-          <a class="chip" target="_blank" rel="noopener">CV</a> 
-          <a class="chip" target="_blank" rel="noopener">Telefono</a> 
+       <div class="d-flex flex-wrap gap-2">
+  <?php if(!empty($profile['email'])): ?>
+    <a class="chip" href="#sec-email">Email</a>
+  <?php endif; ?>
 
+  <?php if($linkedin): ?>
+    <a class="chip" href="#sec-linkedin">LinkedIn</a>
+  <?php endif; ?>
 
-        </div>
+  <?php if($github): ?>
+    <a class="chip" href="#sec-github">GitHub</a>
+  <?php endif; ?>
 
-        <?php if($cv_url): ?>
-          <a class="btn btn-sm btn-outline-light w-100 mt-3" href="<?=h($cv_url)?>" target="_blank" rel="noopener">Descargar CV</a>
-        <?php endif; ?>
+  <?php if($cv_file):  ?>
+    <a class="chip" href="#sec-cv">CV</a>
+  <?php endif; ?>
+
+  <a class="chip" href="#sec-phone">Teléfono</a>
+</div>
 
         <?php if(!empty($profile['summary'])): ?>
           <hr class="my-3 opacity-25">
@@ -217,8 +230,99 @@ $cv_url   = $profile['resume_url'] ?? ''; // si agregas esta columna, muestra bo
           </div>
         <?php endif; ?>
       </section>
+      </div>
+<div style = "display: flex">
+<!-- ====== LINKS DE CONTACTO (destino del scroll) ====== -->
+<section class="panel p-3 glass mt-3" style="display: flow-root" id="contact-links">
+  <h2 class="section-title mb-2">Links de contacto</h2><br>
 
-      
+  <style>
+    .contact-row{display:flex;align-items:center;gap:.6rem;margin-bottom:.5rem}
+    .contact-row img{width:24px;height:24px;object-fit:contain}
+    .contact-row a{word-break:break-all}
+    .contact-empty{color:#6c757d}
+  </style>
+
+  <?php $resBase = 'img/resources'; ?>
+
+  <!-- Email -->
+  <div class="cardx mb-2" id="sec-email">
+    <?php if(!empty($profile['email'])): ?>
+      <div class="contact-row">
+        <img src="<?=$resBase;?>/gmail.png" alt="Email">
+        <a href="mailto:<?=h($profile['email']);?>"><?=h($profile['email']);?></a>
+      </div>
+    <?php else: ?>
+      <div class="contact-row contact-empty">
+        <img src="<?=$resBase;?>/gmail.png" alt="Email">
+        <span>No configurado</span>
+      </div>
+    <?php endif; ?>
+  </div>
+
+  <!-- LinkedIn -->
+  <div class="cardx mb-2" id="sec-linkedin">
+    <?php if($linkedin): ?>
+      <div class="contact-row">
+        <img src="<?=$resBase;?>/linkedin.png" alt="LinkedIn">
+        <a href="<?=h($linkedin);?>" target="_blank" rel="noopener"><?=h($linkedin);?></a>
+      </div>
+    <?php else: ?>
+      <div class="contact-row contact-empty">
+        <img src="<?=$resBase;?>/linkedin.png" alt="LinkedIn">
+        <span>No configurado</span>
+      </div>
+    <?php endif; ?>
+  </div>
+
+  <!-- GitHub -->
+  <div class="cardx mb-2" id="sec-github">
+    <?php if($github): ?>
+      <div class="contact-row">
+        <img src="<?=$resBase;?>/github.png" alt="GitHub">
+        <a href="<?=h($github);?>" target="_blank" rel="noopener"><?=h($github);?></a>
+      </div>
+    <?php else: ?>
+      <div class="contact-row contact-empty">
+        <img src="<?=$resBase;?>/github.png" alt="GitHub">
+        <span>No configurado</span>
+      </div>
+    <?php endif; ?>
+  </div>
+
+  <!-- CV -->
+  <div class="cardx mb-2" id="sec-cv">
+    <?php if($cv_file): ?>
+      <div class="contact-row">
+        <img src="<?=$resBase;?>/resume.png" alt="CV">
+        <a href="<?=h($cv_file);?>" target="_blank" rel="noopener">Ver CV</a>
+      </div>
+    <?php else: ?>
+      <div class="contact-row contact-empty">
+        <img src="<?=$resBase;?>/resume.png" alt="CV">
+        <span>No configurado</span>
+      </div>
+    <?php endif; ?>
+  </div>
+
+  <!-- Teléfono / WhatsApp -->
+  <div class="cardx" id="sec-phone">
+    <?php $phone = $profile['phone'] ?? ''; ?>
+    <?php if($phone): ?>
+      <div class="contact-row">
+        <img src="<?=$resBase;?>/whatsapp.png" alt="Teléfono">
+        <a href="tel:<?=h($phone);?>"><?=h($phone);?></a>
+      </div>
+    <?php else: ?>
+      <div class="contact-row contact-empty">
+        <img src="<?=$resBase;?>/whatsapp.png" alt="Teléfono">
+        <span>No configurado</span>
+      </div>
+    <?php endif; ?>
+  </div>
+</section>
+
+</div>
 
 </body>
 

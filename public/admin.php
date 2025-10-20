@@ -18,6 +18,51 @@ const RESOURCES_DIR = __DIR__ . '/resources';       // carpeta física
 const RESOURCES_URL = 'resources/';                 // ruta web
 const RESOURCE_PHOTO_BASENAME = 'perfil.jpg';       // pon aquí tu archivo, o déjalo '' para autodetectar
 
+function handle_profile_photo_upload(?array $file): ?string {
+  // returns web path (e.g., "img/profile/profile.jpg") or null if no file
+  if (empty($file) || empty($file['name'])) return null;
+  if ($file['error'] === UPLOAD_ERR_NO_FILE) return null;
+  if ($file['error'] !== UPLOAD_ERR_OK) {
+    throw new RuntimeException('Error al subir la imagen (código '.$file['error'].')');
+  }
+
+  // Validate mime
+  $allowed = ['image/jpeg','image/png','image/webp','image/gif'];
+  $finfo   = finfo_open(FILEINFO_MIME_TYPE);
+  $mime    = finfo_file($finfo, $file['tmp_name']);
+  finfo_close($finfo);
+  if (!in_array($mime, $allowed, true)) {
+    throw new RuntimeException('Solo se permiten JPG, PNG, WEBP o GIF.');
+  }
+
+  // (Opcional) tamaño, 3MB
+  if ($file['size'] > 3 * 1024 * 1024) {
+    throw new RuntimeException('La imagen supera 3MB.');
+  }
+
+  // Destino (este admin.php vive en /public)
+  $destDir  = __DIR__ . '/img/profile';
+  if (!is_dir($destDir)) mkdir($destDir, 0755, true);
+
+  // Usamos SIEMPRE el mismo nombre para sobrescribir
+  $destAbs  = $destDir . '/profile.jpg';
+  $webPath  = 'img/profile/profile.jpg';
+
+  // Sobrescribe si existe
+  if (is_file($destAbs)) @unlink($destAbs);
+
+  // Guardar: no convertimos formato, solo movemos con nombre .jpg (funciona igual)
+  if (!move_uploaded_file($file['tmp_name'], $destAbs)) {
+    throw new RuntimeException('No se pudo guardar la imagen.');
+  }
+
+  // permisos de lectura
+  @chmod($destAbs, 0644);
+
+  return $webPath; // guarda esto en la BD
+}
+
+
 function resolve_resources_photo(): ?string {
   // 1) Si definiste un nombre fijo
   if (RESOURCE_PHOTO_BASENAME !== '') {
@@ -46,14 +91,55 @@ function resolve_resources_photo(): ?string {
 }
 
 
+function handle_resume_pdf_upload(?array $file): ?string {
+  if (empty($file) || empty($file['name'])) return null;
+
+  if ($file['error'] === UPLOAD_ERR_NO_FILE) return null;
+  if ($file['error'] !== UPLOAD_ERR_OK) {
+    throw new RuntimeException('Error al subir el PDF (código '.$file['error'].')');
+  }
+
+  // Validación MIME
+  $finfo = finfo_open(FILEINFO_MIME_TYPE);
+  $mime  = finfo_file($finfo, $file['tmp_name']);
+  finfo_close($finfo);
+  if ($mime !== 'application/pdf') {
+    throw new RuntimeException('El archivo debe ser un PDF válido.');
+  }
+
+  // Tamaño (5MB)
+  if ($file['size'] > 5 * 1024 * 1024) {
+    throw new RuntimeException('El PDF supera 5MB.');
+  }
+
+  // Ruta de destino (carpeta pública)
+  $destDir  = __DIR__ . '/docs';
+  $public   = 'docs'; // ruta web relativa
+  if (!is_dir($destDir)) mkdir($destDir, 0755, true);
+
+  $slug     = bin2hex(random_bytes(6));
+  $fileName = "cv-{$slug}.pdf";
+  $destPath = $destDir . '/' . $fileName;
+
+  if (!move_uploaded_file($file['tmp_name'], $destPath)) {
+    throw new RuntimeException('No se pudo guardar el PDF.');
+  }
+  @chmod($destPath, 0644);
+
+  return $public.'/'.$fileName; // lo que guardaremos en la BD
+}
+
+
+
 // ================== PERFIL: crear/actualizar (SIN inputs de foto) ==================
 if (isset($_POST['save_profile'])) {
   csrf_check();
   try {
-    // 1) Detectar foto automáticamente desde /resources (puede quedar null)
-    $autoPhotoUrl = resolve_resources_photo();
+    // 1) Subidas (ahora con foto real)
+    $uploadedPhoto = handle_profile_photo_upload($_FILES['profile_photo'] ?? null); // <-- NUEVO
+    $newResumeFile = handle_resume_pdf_upload($_FILES['resume_pdf'] ?? null);
 
-    // 2) Campos del perfil (trim para limpiar espacios)
+    // 2) Campos
     $full_name  = trim($_POST['full_name']  ?? '');
     $title      = trim($_POST['title']      ?? '');
     $email      = trim($_POST['email']      ?? '');
@@ -62,65 +148,72 @@ if (isset($_POST['save_profile'])) {
     $github     = trim($_POST['github']     ?? '');
     $summary    = trim($_POST['summary']    ?? '');
 
-    // 3) ¿Existe perfil?
+    // 3) ¿Existe?
     $row = $pdo->query("SELECT TOP 1 id FROM dbo.profile ORDER BY id ASC")->fetch();
 
     if ($row) {
-      // UPDATE (sin resume_url)
-      $sql = "UPDATE dbo.profile SET
-                full_name = :full_name,
-                title     = :title,
-                email     = :email,
-                location  = :location,
-                linkedin  = :linkedin,
-                github    = :github,
-                summary   = :summary,
-                photo_url = COALESCE(:photo_url, photo_url)
-              WHERE id = :id";
-      $stmt = $pdo->prepare($sql);
-      $stmt->execute([
-        ':full_name'  => $full_name,
-        ':title'      => $title,
-        ':email'      => $email,
-        ':location'   => $location,
-        ':linkedin'   => $linkedin,
-        ':github'     => $github,
-        ':summary'    => $summary,
-        ':photo_url'  => $autoPhotoUrl, // null => conserva la existente
-        ':id'         => (int)$row['id'],
-      ]);
+      $set = "
+        full_name = :full_name,
+        title     = :title,
+        email     = :email,
+        location  = :location,
+        linkedin  = :linkedin,
+        github    = :github,
+        summary   = :summary
+      ";
+      $params = [
+        ':full_name' => $full_name,
+        ':title'     => $title,
+        ':email'     => $email,
+        ':location'  => $location,
+        ':linkedin'  => $linkedin,
+        ':github'    => $github,
+        ':summary'   => $summary,
+        ':id'        => (int)$row['id'],
+      ];
+
+      if ($uploadedPhoto !== null) {
+        $set .= ", photo_url = :photo_url";
+        $params[':photo_url'] = $uploadedPhoto; // "img/profile/profile.jpg"
+      }
+      if ($newResumeFile !== null) {
+        $set .= ", resume_file = :resume_file";
+        $params[':resume_file'] = $newResumeFile;
+      }
+
+      $sql = "UPDATE dbo.profile SET $set WHERE id = :id";
+      $pdo->prepare($sql)->execute($params);
+
     } else {
-      // INSERT (sin resume_url)
       $sql = "INSERT INTO dbo.profile
-                (full_name, title, email, location, linkedin, github, summary, photo_url)
+              (full_name, title, email, location, linkedin, github, summary, photo_url, resume_file)
               VALUES
-                (:full_name, :title, :email, :location, :linkedin, :github, :summary, :photo_url)";
-      $stmt = $pdo->prepare($sql);
-      $stmt->execute([
-        ':full_name'  => $full_name,
-        ':title'      => $title,
-        ':email'      => $email,
-        ':location'   => $location,
-        ':linkedin'   => $linkedin,
-        ':github'     => $github,
-        ':summary'    => $summary,
-        ':photo_url'  => $autoPhotoUrl, // puede ser null
+              (:full_name, :title, :email, :location, :linkedin, :github, :summary, :photo_url, :resume_file)";
+      $pdo->prepare($sql)->execute([
+        ':full_name'   => $full_name,
+        ':title'       => $title,
+        ':email'       => $email,
+        ':location'    => $location,
+        ':linkedin'    => $linkedin,
+        ':github'      => $github,
+        ':summary'     => $summary,
+        ':photo_url'   => $uploadedPhoto,   // puede ser null si no subiste nada
+        ':resume_file' => $newResumeFile,   // idem
       ]);
     }
 
-    header('Location: admin.php?ok=' . urlencode('Perfil guardado ✅')); exit;
+    header('Location: admin.php?ok=' . urlencode('Profile Saved ✅')); exit;
 
   } catch (Throwable $e) {
     $err = "Error guardando perfil: " . $e->getMessage();
   }
 }
 
-
 // ----------------- Auth mínima -----------------
 if(isset($_POST['doLogin'])){
   csrf_check();
   $_SESSION['is_admin'] = (($_POST['password'] ?? '') === ADMIN_PASS);
-  if(!$_SESSION['is_admin']) $err = "Clave incorrecta";
+  if(!$_SESSION['is_admin']) $err = "Wrong Password";
 }
 if(isset($_GET['logout'])){
   session_destroy();
@@ -165,7 +258,7 @@ if(!$auth){
 
         <div class="d-grid gap-2 mt-3">
           <button class="btn btn-brand">Enter</button>
-          <a class="btn btn-outline-light" href="index.php">←Main</a>
+          <a class="btn btn-outline-light" href="index.php">Main</a>
         </div>
       </form>
     </div>
@@ -312,10 +405,10 @@ if(isset($_GET['edit_skill'])){
 <body class="pb-5">
 <div class="container my-4">
   <div class="d-flex align-items-center justify-content-between mb-3">
-    <h1 class="h4 m-0">Panel del CV</h1>
+    <h1 class="h4 m-0">Panel</h1>
     <div class="d-flex gap-2">
-      <a class="btn btn-sm btn-outline-light" href="index.php">Ver CV</a>
-      <a class="btn btn-sm btn-outline-danger" href="?logout=1">Salir</a>
+      <a class="btn btn-sm btn-outline-light" href="index.php">Main</a>
+      <a class="btn btn-sm btn-outline-danger" href="?logout=1">Logout</a>
     </div>
   </div>
 
@@ -327,7 +420,9 @@ if(isset($_GET['edit_skill'])){
 <div class="col-12">
   <div class="shell panel-tilt">
     <h2 class="h6 mb-3">Perfil</h2>
+
     <form method="post" enctype="multipart/form-data" class="d-grid gap-2">
+      <!-- Nombre / Título -->
       <div class="row g-2">
         <div class="col-md-6">
           <label class="form-label">Nombre completo</label>
@@ -339,17 +434,19 @@ if(isset($_GET['edit_skill'])){
         </div>
       </div>
 
+      <!-- Email / País (location) -->
       <div class="row g-2">
         <div class="col-md-6">
           <label class="form-label">Email</label>
           <?php input('email','email',$profile['email'] ?? '','tu@correo.com') ?>
         </div>
         <div class="col-md-6">
-          <label class="form-label">Ubicación</label>
-          <?php input('location','text',$profile['location'] ?? '','Heredia, CR') ?>
+          <label class="form-label">País</label>
+          <?php input('location','text',$profile['location'] ?? '','Costa Rica') ?>
         </div>
       </div>
 
+      <!-- LinkedIn / GitHub -->
       <div class="row g-2">
         <div class="col-md-4">
           <label class="form-label">LinkedIn</label>
@@ -359,21 +456,28 @@ if(isset($_GET['edit_skill'])){
           <label class="form-label">GitHub</label>
           <?php input('github','url',$profile['github'] ?? '','https://github.com/…') ?>
         </div>
+
+
+        <div style = "display: block">
         <div class="col-md-4">
-          <label class="form-label">URL CV (PDF)</label>
-          <?php input('resume_url','url',$profile['resume_url'] ?? '','https://…/cv.pdf') ?>
+          <label class="form-label">Subir CV (PDF)</label>
+          <input type="file" name="resume_pdf" accept="application/pdf" class="form-control">
+          <div class="form-text">Máx. 5MB. Se reemplaza el anterior.</div>
         </div>
       </div>
 
-     <?php if (!empty($profile['photo_url'])): ?>
-  <div class="mt-2">
-    <img src="<?=h($profile['photo_url'])?>" alt="Foto actual" style="height:80px;border-radius:12px">
-  </div>
-<?php endif; ?>
+      <!-- Foto de perfil -->
+      <div class="row g-2">
+        <div class="col-md-4">
+          <label class="form-label">Foto de perfil</label>
+          <input type="file" name="profile_photo" accept="image/*" class="form-control">
+        </div>
+      </div>
+      </div>
 
-  <?php csrf_input(); ?>
-  <button class="btn btn-brand mt-1" name="save_profile" value="1">Guardar perfil</button>
-</form>
+      <?php csrf_input(); ?>
+      <button class="btn btn-brand mt-1" name="save_profile" value="1">Guardar perfil</button>
+    </form>
   </div>
 </div>
 
@@ -501,6 +605,7 @@ if(isset($_GET['edit_skill'])){
   </section>
 
   <div class="my-4 divider"></div>
+
 </div>
 </body>
 </html>
