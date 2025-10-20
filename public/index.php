@@ -105,11 +105,29 @@ $cv_file = $profile['resume_file'] ?? '';
 </head>
 <body class="pb-5">
 <nav class="navbar navbar-dark sticky-top">
-  <div class="container py-2">
-<span class="fw-semibold">
-  <a href="admin.php" class="brand-dot me-2" aria-label="Ir al panel de administración"></a>
-  <?=h($profile['full_name'] ?? 'Tu Nombre');?>
+  <div class="container py-2 d-flex align-items-center">
+    <span class="fw-semibold d-flex align-items-center">
+      <a href="admin.php" class="brand-dot me-2" aria-label="Ir al panel de administración"></a>
+      <?=h($profile['full_name'] ?? 'Tu Nombre');?>
+    </span>
+
+    <!-- A la derecha -->
+<span class="ms-auto d-flex align-items-center gap-2">
+  <span class="text-secondary small">Powered by</span>
+
+  <!-- Link al widget de IA -->
+  <a href="#ai-chat" class="d-flex align-items-center gap-2"
+     aria-label="Ir al asistente de IA" style="text-decoration:none">
+    <img src="/img/resources/chat-gpt.png"
+         alt="ChatGPT"
+         style="width:25px;height:25px;object-fit:contain;display:block;">
+    <span class="text-secondary small">OpenAI</span>
+  </a>
 </span>
+
+
+
+
   </div>
 </nav>
 
@@ -230,7 +248,11 @@ $cv_file = $profile['resume_file'] ?? '';
         <?php endif; ?>
       </section>
       </div>
+
+<div style = "display: inline-flex; gap: 17px;">
 <div style = "display: flex">
+
+
 <!-- ====== LINKS DE CONTACTO (destino del scroll) ====== -->
 <section class="panel p-3 glass mt-3" style="display: flow-root" id="contact-links">
   <h2 class="section-title mb-2">Links de contacto</h2><br>
@@ -322,7 +344,298 @@ $cv_file = $profile['resume_file'] ?? '';
 </section>
 
 </div>
+<!-- (NUEVO) WIDGET CHATGPT (mini) -->
+<section class="panel p-3 glass mt-3" style="display:block" id="ai-chat">
+  <h2 class="section-title mb-2">Asistente de IA</h2>
 
+<!-- Conversación -->
+<div id="ai-chatlog" class="cardx mb-2" style="padding:12px; height:360px; overflow:auto">
+  <!-- Burbuja inicial del asistente -->
+  <div class="bubble assistant">
+    <div class="role text-secondary">Asistente</div>
+    <div class="mono">¡Hola! Soy tu asistente. Pregúntame lo que sea</div>
+  </div>
+</div>
+
+ <textarea
+  id="ai-input"
+  class="form-control mb-2"
+  rows="1"
+  placeholder="Empieza a Chatear"
+  style="
+    border-color:rgba(139,255,203,.35);
+    background:linear-gradient(180deg, rgba(20,40,35,.5), rgba(10,25,20,.35));
+    color:#fff;
+    caret-color:#fff;
+    resize:none;           /* evita que el usuario estire manualmente */
+    overflow-y:auto;       /* scroll cuando supera el máximo */
+  "
+></textarea>
+
+
+    <div class="d-flex gap-2 align-items-center">
+      <button id="ai-send" class="btn btn-warning">Enviar</button>
+      <button id="ai-reset" class="btn btn-outline-light">Reset</button>
+  <div class="form-check ms-auto" style="display:none">
+    <input class="form-check-input" type="checkbox" id="ai-persist" checked>
+    <label class="form-check-label small" for="ai-persist">Guardar chat local</label>
+  </div>
+      <div id="ai-status" class="small text-secondary ms-2" aria-live="polite"></div>
+    </div>
+  </div>
+</section>
+</div>
+
+</div>
 </body>
-
 </html>
+
+<style>
+
+  #ai-input::placeholder { color: white; opacity: .2; }
+
+  /* Burbujas tipo chat */
+  .bubble { border:1px solid var(--border); border-radius:14px; padding:10px 12px; margin:8px 0; max-width:92%;
+            background:linear-gradient(180deg, rgba(14,19,31,.75), rgba(10,15,25,.75)); }
+  .bubble.user { margin-left:auto; border-color:rgba(139,255,203,.35);
+                 background:linear-gradient(180deg, rgba(20,40,35,.5), rgba(10,25,20,.35)); }
+  .bubble.assistant { margin-right:auto; }
+  .role { font-size:.72rem; letter-spacing:.06em; text-transform:uppercase; opacity:.7; }
+  .typing { display:inline-flex; gap:6px; align-items:center; opacity:.8 }
+  .dot-typing { width:6px; height:6px; border-radius:50%; background:#b8c1cc; animation: blink 1.2s infinite; }
+  .dot-typing:nth-child(2){ animation-delay:.2s } .dot-typing:nth-child(3){ animation-delay:.4s }
+  @keyframes blink { 0%,80%,100%{opacity:.2} 40%{opacity:1} }
+  .mono { font-family:"JetBrains Mono",monospace; white-space:pre-wrap }
+  /* --- Anti-aplastamiento entre Contactos y Chat --- */
+
+/* Ambos paneles comparten el espacio y pueden encogerse en flex */
+#contact-links,
+#ai-chat {
+  flex: 1 1 360px;
+  min-width: 0;        /* clave: permite que el flex item encoja con contenido largo */
+}
+
+/* El área de conversación queda fija y con scroll interno */
+#ai-chatlog {
+  height: 360px;       /* ya lo tienes, reafirmamos */
+  overflow: auto;
+  max-width: 100%;
+}
+
+/* Burbujas del chat: nunca exceden el ancho disponible */
+#ai-chat .bubble { 
+  max-width: 100%;     /* evita que una burbuja fuerce el ancho del panel */
+}
+
+/* Texto de las burbujas: cortar palabras/URLs largas */
+#ai-chat .mono {
+  white-space: pre-wrap;
+  word-break: break-word;     /* corta palabras larguísimas */
+  overflow-wrap: anywhere;    /* y también URLs/líneas sin espacios */
+}
+
+/* (Opcional) Limita el ancho total del widget de chat en desktop */
+@media (min-width: 992px) {
+  #ai-chat { max-width: 560px; }
+}
+</style>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+  const ta = document.getElementById('ai-input');
+  if (!ta) return;
+
+  const MAX_ROWS = 3;
+
+  const autosize = () => {
+    // Calcula alto de una línea
+    const cs = window.getComputedStyle(ta);
+    const lineHeight = parseFloat(cs.lineHeight || '20');
+    const maxHeight  = lineHeight * MAX_ROWS +   // alto del contenido
+                       parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) +
+                       parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+
+    ta.style.height = 'auto';                    // encoge primero
+    const newHeight = Math.min(ta.scrollHeight, maxHeight);
+    ta.style.height = newHeight + 'px';
+    ta.style.overflowY = (ta.scrollHeight > maxHeight) ? 'auto' : 'hidden';
+  };
+
+  // Ajusta al cargar y en cada entrada
+  autosize();
+  ta.addEventListener('input', autosize);
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+  let ENDPOINT = "api/ai_proxy.php";
+
+  const $log     = document.getElementById('ai-chatlog');
+  const $in      = document.getElementById('ai-input');
+  const $send    = document.getElementById('ai-send');
+  const $reset   = document.getElementById('ai-reset');
+  const $status  = document.getElementById('ai-status');
+  const $persist = document.getElementById('ai-persist'); // oculto pero presente
+
+  if(!$log || !$in || !$send || !$status || !$persist){
+    console.warn('AI widget incompleto: verifica los IDs requeridos.');
+    return;
+  }
+
+  // Persistencia siempre activa aunque esté oculto
+  $persist.checked = true;
+  const KEY = "miniChatGPT-history";
+  let history = [];
+
+  // ------ UI helpers ------
+  function scrollToBottom(){ $log.scrollTop = $log.scrollHeight; }
+  function setBusy(b){ $send.disabled = b; $in.disabled = b; $status.textContent = b ? "Escribiendo…" : ""; }
+  function appendBubble(role, text){
+    const wrap = document.createElement('div');
+    wrap.className = `bubble ${role}`;
+    wrap.innerHTML = `
+      <div class="role text-secondary">${role === 'user' ? 'Tú' : 'Asistente'}</div>
+      <div class="mono"></div>`;
+    wrap.querySelector('.mono').textContent = text;
+    $log.appendChild(wrap);
+    scrollToBottom();
+  }
+  function appendTyping(){
+    removeTyping();
+    const wrap = document.createElement('div');
+    wrap.className = 'bubble assistant';
+    wrap.id = 'typing';
+    wrap.innerHTML = `
+      <div class="role text-secondary">Asistente</div>
+      <div class="typing"><span class="dot-typing"></span><span class="dot-typing"></span><span class="dot-typing"></span></div>`;
+    $log.appendChild(wrap);
+    scrollToBottom();
+  }
+  function removeTyping(){ const t = document.getElementById('typing'); if(t) t.remove(); }
+
+function ensureGreeting(){
+  if (history.length === 0) {
+    // evita duplicado si ya existe una burbuja de asistente
+    const hasAnyBubble = $log.querySelector('.bubble.assistant');
+    if (!hasAnyBubble) {
+      appendBubble('assistant', '¡Hola! Soy tu asistente. Pregúntame lo que sea');
+    }
+  }
+}
+  // ------ Prompt compacto (para reducir latencia/timeouts) ------
+  function buildPrompt(latestUserMessage){
+    const system = "Eres un asistente breve, claro y útil para un portafolio. Si no sabes algo, dilo.";
+    // últimos 4 turnos y recorte de 220 chars por mensaje
+    const recent = history.slice(-4);
+    const tail = recent.map(m => {
+      let t = m.content || "";
+      if (t.length > 220) t = t.slice(0,217) + "...";
+      return `${m.role.toUpperCase()}: ${t}`;
+    }).join('\n');
+    const userNow = `USER: ${latestUserMessage}`;
+    const policy  = "Asistente: responde en español y no excedas 25 palabras.";
+    let full = `${system}\n\n${tail}\n${userNow}\n\n${policy}`;
+    if (full.length > 1200) full = full.slice(0,1197) + "...";
+    return full;
+  }
+
+  // ------ Fetch helper ------
+  async function apiPost(url, json, timeoutMs = 20000) {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify(json),
+        signal: ctrl.signal
+      });
+      const ct = res.headers.get("content-type") || "";
+      const body = await res.text();
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${body || "(sin cuerpo)"}`);
+      return ct.includes("application/json") ? JSON.parse(body) : body;
+    } finally { clearTimeout(tid); }
+  }
+
+  async function askAssistant(userText){
+    const prompt = buildPrompt(userText);
+    setBusy(true);
+    appendBubble('user', userText);
+    history.push({role:'user', content:userText});
+    appendTyping();
+
+    const tryRequest = async () => {
+      try { return await apiPost(ENDPOINT, { prompt }); }
+      catch (e) {
+        const msg = String(e.message || e);
+        if (msg.startsWith("HTTP 404") && !ENDPOINT.startsWith("/")) {
+          ENDPOINT = "/" + ENDPOINT; // fallback a ruta absoluta
+          return await apiPost(ENDPOINT, { prompt });
+        }
+        throw e;
+      }
+    };
+
+    try{
+      const data = await tryRequest();
+      let answer = typeof data === 'string'
+        ? data
+        : (data.output ?? data.message ?? data.response ?? JSON.stringify(data, null, 2));
+
+      removeTyping();
+      appendBubble('assistant', answer || "(sin contenido)");
+      history.push({role:'assistant', content: answer || "(sin contenido)"});
+      try{ localStorage.setItem(KEY, JSON.stringify(history)); }catch{}
+    }catch(err){
+      console.error(err);
+      removeTyping();
+      const msg = "⚠️ No se pudo obtener respuesta.\n" + (err.message || err);
+      appendBubble('assistant', msg);
+      history.push({role:'assistant', content: msg});
+      try{ localStorage.setItem(KEY, JSON.stringify(history)); }catch{}
+    }finally{
+      setBusy(false);
+    }
+  }
+
+  // ------ Eventos ------
+  $send.addEventListener('click', () => {
+    const v = ($in.value || "").trim();
+    if(!v){ $in.focus(); return; }
+    $in.value = "";
+    askAssistant(v);
+  });
+
+  $in.addEventListener('keydown', (e) => {
+    if(e.key === 'Enter' && !e.shiftKey){
+      e.preventDefault();
+      $send.click();
+    }
+  });
+
+  if ($reset) {
+    $reset.addEventListener('click', () => {
+      history = [];
+      $log.innerHTML = "";
+      try{ localStorage.removeItem(KEY); }catch{}
+      ensureGreeting(); // vuelve a mostrar saludo inicial
+      $status.textContent = "";
+      $in.focus(); scrollToBottom();
+    });
+  }
+
+  // ------ Cargar historial y mostrar saludo si no hay ------
+  try{
+    const raw = localStorage.getItem(KEY);
+    if(raw){
+      const parsed = JSON.parse(raw);
+      if(Array.isArray(parsed)){
+        history = parsed;
+        $log.innerHTML = "";
+        history.forEach(m => appendBubble(m.role, m.content));
+      }
+    }
+  }catch{}
+  ensureGreeting(); // siempre garantiza la primera burbuja
+
+});
+</script>

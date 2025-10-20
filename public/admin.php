@@ -462,7 +462,6 @@ if(isset($_GET['edit_skill'])){
         <div class="col-md-4">
           <label class="form-label">Subir CV (PDF)</label>
           <input type="file" name="resume_pdf" accept="application/pdf" class="form-control">
-          <div class="form-text">Máx. 5MB. Se reemplaza el anterior.</div>
         </div>
       </div>
 
