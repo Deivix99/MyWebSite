@@ -13,11 +13,10 @@ $skills   = $pdo->query("
 
 function ym($d){ return $d ? date('M Y', strtotime($d)) : ''; }
 
-// Foto: usa profile.photo_url si existe; si no, usa el archivo fijo
-$photo = (!empty($profile['photo_url']))
-  ? $profile['photo_url']                       // e.g. "img/profile/profile.jpg" desde la BD
-  : 'img/profile/profile.jpg';                  // fallback local (ya en tu repo)
-
+// Foto: usa profile.photo_url si existe, si no un archivo local
+$photo = isset($profile['photo_url']) && $profile['photo_url']
+  ? $profile['photo_url']
+  : 'img/profile.jpg'; // crea public/img/avatar.jpg con tu foto
 
 // Links opcionales
 $linkedin = $profile['linkedin'] ?? '';
