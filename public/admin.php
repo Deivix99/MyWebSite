@@ -154,18 +154,18 @@ if(!$auth){
   </head>
   <body class="pb-5">
   <div class="container my-5" style="max-width:520px">
-    <h1 class="h4 mb-3 text-center">Panel del CV</h1>
+    <h1 class="h4 mb-3 text-center">Admin</h1>
     <?php if(!empty($err)) banner($err, 'danger'); ?>
     <div class="shell glass">
       <form method="post">
-        <label class="form-label">Contraseña de admin</label>
+        <label class="form-label">Password</label>
         <?php input('password','password','','••••••••') ?>
         <?php csrf_input(); ?>
         <input type="hidden" name="doLogin" value="1">
 
         <div class="d-grid gap-2 mt-3">
-          <button class="btn btn-brand">Entrar</button>
-          <a class="btn btn-outline-light" href="index.php">← Volver</a>
+          <button class="btn btn-brand">Enter</button>
+          <a class="btn btn-outline-light" href="index.php">←Main</a>
         </div>
       </form>
     </div>
