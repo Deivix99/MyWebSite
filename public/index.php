@@ -24,6 +24,55 @@ $github   = $profile['github']   ?? '';
 $cv_url = $profile['resume_file'] ?? ''; // usamos la nueva columna
 $cv_file = $profile['resume_file'] ?? '';
 
+// ====== Resumen compacto del perfil para IA (guardado en sesión) ======
+if (session_status() !== PHP_SESSION_ACTIVE) { session_start(); }
+
+function str_trimmed(?string $s): string {
+  $s = trim((string)$s);
+  $s = preg_replace('/\s+/u', ' ', $s ?? '');
+  return (string)$s;
+}
+
+// Top skills por categoría (1 línea)
+$skills_lines = [];
+foreach ($skills as $row) {
+  $cat = str_trimmed($row['category'] ?? 'General');
+  $it  = str_trimmed($row['items'] ?? '');
+  if ($it !== '') $skills_lines[] = "$cat: $it";
+}
+$skills_summary = implode(' | ', $skills_lines);
+
+// Proyectos: cantidad y hasta 3 títulos recientes
+$project_titles = array_slice(array_map(
+  fn($p) => str_trimmed($p['title'] ?? ''),
+  $projects
+), 0, 3);
+$projects_summary = count($projects) . " proyectos";
+if ($project_titles) $projects_summary .= " (ej.: " . implode(', ', $project_titles) . ")";
+
+// Links útiles
+$link_bits = [];
+if (!empty($profile['email']))    $link_bits[] = "email: {$profile['email']}";
+if (!empty($profile['linkedin'])) $link_bits[] = "linkedin: {$profile['linkedin']}";
+if (!empty($profile['github']))   $link_bits[] = "github: {$profile['github']}";
+if (!empty($profile['resume_file'])) $link_bits[] = "cv: {$profile['resume_file']}";
+$links_summary = implode(' | ', $link_bits);
+
+// Resumen final (máx ~600 chars)
+$raw_summary = trim(implode(' — ', array_filter([
+  str_trimmed(($profile['full_name'] ?? '') . ' · ' . ($profile['title'] ?? '')) ?: null,
+  !empty($profile['location']) ? "Ubicación: " . str_trimmed($profile['location']) : null,
+  $skills_summary ?: null,
+  $projects_summary ?: null,
+  $links_summary ?: null,
+  !empty($profile['summary']) ? "Bio: " . str_trimmed($profile['summary']) : null,
+])));
+$summary = mb_substr($raw_summary, 0, 600);
+
+// Guarda en sesión para que el JS lo consuma
+$_SESSION['cv_profile_summary'] = $summary;
+
+
 ?>
 <!doctype html>
 <html lang="es">
@@ -104,6 +153,11 @@ $cv_file = $profile['resume_file'] ?? '';
   </style>
 </head>
 <body class="pb-5">
+  <script>
+  // Perfil resumido traído desde sesión (sanitizado con json_encode)
+  const PROFILE_SUMMARY = <?= json_encode($_SESSION['cv_profile_summary'] ?? '', JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+</script>
+
 <nav class="navbar navbar-dark sticky-top">
   <div class="container py-2 d-flex align-items-center">
     <span class="fw-semibold d-flex align-items-center">
@@ -523,20 +577,34 @@ function ensureGreeting(){
 }
   // ------ Prompt compacto (para reducir latencia/timeouts) ------
   function buildPrompt(latestUserMessage){
-    const system = "Eres un asistente breve, claro y útil para un portafolio. Si no sabes algo, dilo.";
-    // últimos 4 turnos y recorte de 220 chars por mensaje
-    const recent = history.slice(-4);
-    const tail = recent.map(m => {
-      let t = m.content || "";
-      if (t.length > 220) t = t.slice(0,217) + "...";
-      return `${m.role.toUpperCase()}: ${t}`;
-    }).join('\n');
-    const userNow = `USER: ${latestUserMessage}`;
-    const policy  = "Asistente: responde en español y no excedas 25 palabras.";
-    let full = `${system}\n\n${tail}\n${userNow}\n\n${policy}`;
-    if (full.length > 1200) full = full.slice(0,1197) + "...";
-    return full;
-  }
+  const system = "Eres un asistente breve, claro y útil para un portafolio. Si no sabes algo, dilo.";
+
+  // Resumen compacto del perfil (inyectado desde PHP/SESION)
+  // Lo recortamos por si acaso
+  const profileCtx = (PROFILE_SUMMARY || "").toString();
+  const profileShort = profileCtx.length > 600 ? profileCtx.slice(0,597) + "..." : profileCtx;
+
+  // Últimos 4 turnos y recorte de 220 chars por mensaje
+  const recent = history.slice(-4);
+  const tail = recent.map(m => {
+    let t = (m.content || "");
+    if (t.length > 220) t = t.slice(0,217) + "...";
+    return `${m.role.toUpperCase()}: ${t}`;
+  }).join('\n');
+
+  const userNow = `USER: ${latestUserMessage}`;
+
+  // Policy + contexto
+  const context = profileShort ? `\n\n[Contexto del perfil]\n${profileShort}\n` : "\n";
+
+  const policy  = "Asistente: responde en español y no excedas 25 palabras.";
+
+  // Ensamblar y limitar tamaño total
+  let full = `${system}${context}\n${tail}\n${userNow}\n\n${policy}`;
+  if (full.length > 1600) full = full.slice(0,1597) + "...";
+  return full;
+}
+
 
   // ------ Fetch helper ------
   async function apiPost(url, json, timeoutMs = 20000) {
