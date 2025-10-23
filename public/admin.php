@@ -1,4 +1,12 @@
 <?php
+
+ini_set('session.cookie_httponly','1');
+ini_set('session.use_strict_mode','1');
+ini_set('session.cookie_samesite','Strict');
+if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+  ini_set('session.cookie_secure','1');
+}
+
 session_start();
 require __DIR__.'/../config.mssql.php';
 require __DIR__.'/_partials.php';
@@ -6,8 +14,23 @@ require __DIR__.'/_partials.php';
 
 csrf_boot(); // CSRF listo
 
-// ⚠️ cambia esta clave para tu admin
-const ADMIN_PASS = 'root';
+// === Flash helpers (PRG) ===
+function flash_set(string $type, string $msg): void {
+  $_SESSION['flash'][$type] = $msg;
+}
+function flash_redirect(string $type, string $msg, string $to = 'admin.php'): void {
+  flash_set($type, $msg);
+  header('Location: ' . $to);
+  exit;
+}
+function flash_take(string $type): ?string {
+  if (!empty($_SESSION['flash'][$type])) {
+    $m = $_SESSION['flash'][$type];
+    unset($_SESSION['flash'][$type]);
+    return $m;
+  }
+  return null;
+}
 
 
 
@@ -202,24 +225,52 @@ if (isset($_POST['save_profile'])) {
       ]);
     }
 
-    header('Location: admin.php?ok=' . urlencode('Profile Saved ✅')); exit;
+flash_redirect('ok', 'Profile Saved ✅');
 
   } catch (Throwable $e) {
     $err = "Error guardando perfil: " . $e->getMessage();
   }
 }
 
-// ----------------- Auth mínima -----------------
-if(isset($_POST['doLogin'])){
+// ----------------- Auth mínima con BD (solo password) -----------------
+if (isset($_POST['doLogin'])) {
   csrf_check();
-  $_SESSION['is_admin'] = (($_POST['password'] ?? '') === ADMIN_PASS);
-  if(!$_SESSION['is_admin']) $err = "Wrong Password";
+  $pass = (string)($_POST['password'] ?? '');
+
+  // Busca al único admin activo
+  $stmt = $pdo->prepare("SELECT TOP 1 id, password_hash FROM dbo.app_users WHERE role='admin' AND is_active=1");
+  $stmt->execute();
+  $u = $stmt->fetch();
+
+  // Para evitar timing leaks, usa un hash dummy si no existe usuario
+  $hash = $u['password_hash'] ?? password_hash('dummy', PASSWORD_DEFAULT);
+
+  if ($pass !== '' && password_verify($pass, $hash) && $u) {
+    // Rehash si el algoritmo por defecto cambió
+    if (password_needs_rehash($hash, PASSWORD_DEFAULT)) {
+      $newHash = password_hash($pass, PASSWORD_DEFAULT);
+      $upd = $pdo->prepare("UPDATE dbo.app_users SET password_hash=?, updated_at=SYSUTCDATETIME() WHERE id=?");
+      $upd->execute([$newHash, (int)$u['id']]);
+    }
+    session_regenerate_id(true);
+    $_SESSION['is_admin'] = true;
+    $_SESSION['admin_uid'] = (int)$u['id'];
+    header('Location: admin.php'); exit;
+  } else {
+    // Backoff simple por intentos fallidos
+    $_SESSION['login_failures'] = (int)($_SESSION['login_failures'] ?? 0) + 1;
+    usleep(250000 + min(2000000, $_SESSION['login_failures'] * 150000)); // 250ms + escalado
+    $err = "Contraseña incorrecta";
+  }
 }
-if(isset($_GET['logout'])){
+
+if (isset($_GET['logout'])) {
   session_destroy();
   header('Location: admin.php'); exit;
 }
+
 $auth = !empty($_SESSION['is_admin']);
+
 
 if(!$auth){
   // Vista LOGIN
@@ -270,6 +321,38 @@ if(!$auth){
 }
 
 // ----------------- Acciones CRUD (con CSRF) -----------------
+
+
+// ================== Cambio de contraseña de admin ==================
+
+if (isset($_POST['change_admin_password'])) {
+  csrf_check();
+  if (!$auth) { http_response_code(403); exit('Forbidden'); }
+
+  $current = (string)($_POST['current_password'] ?? '');
+  $new1    = (string)($_POST['new_password'] ?? '');
+  $new2    = (string)($_POST['new_password_confirm'] ?? '');
+
+  $st = $pdo->query("SELECT TOP 1 id, password_hash FROM dbo.app_users WHERE role='admin' AND is_active=1");
+  $u = $st->fetch();
+
+  if (!$u || !password_verify($current, $u['password_hash'])) {
+    flash_redirect('err', 'La contraseña actual no es válida');
+  } elseif ($new1 !== $new2) {
+    flash_redirect('err', 'Las contraseñas nuevas no coinciden');
+  } elseif (strlen($new1) < 10 || !preg_match('/[A-Z]/',$new1) || !preg_match('/[a-z]/',$new1) || !preg_match('/\d/',$new1)) {
+    flash_redirect('err', 'La nueva contraseña debe tener ≥10 caracteres, incluir mayúsculas, minúsculas y dígitos.');
+  } else {
+    $hash = password_hash($new1, PASSWORD_DEFAULT);
+    $up = $pdo->prepare("UPDATE dbo.app_users SET password_hash=?, updated_at=SYSUTCDATETIME() WHERE id=?");
+    $up->execute([$hash, (int)$u['id']]);
+    session_regenerate_id(true);
+    flash_redirect('ok', 'Contraseña actualizada ✅');
+  }
+}
+
+
+
 if(isset($_POST['add_project'])){ csrf_check();
   $sql = "INSERT INTO dbo.projects(title, role, description, tech_stack, link, from_date, to_date)
           VALUES (?,?,?,?,?,?,?)";
@@ -283,7 +366,7 @@ if(isset($_POST['add_project'])){ csrf_check();
     $_POST['from_date'] ?: null,
     $_POST['to_date']   ?: null
   ]);
-  $ok = "Proyecto agregado ✅";
+  flash_redirect('ok', 'Proyecto agregado ✅');
 }
 
 if(isset($_POST['update_project'])){ csrf_check();
@@ -302,20 +385,20 @@ if(isset($_POST['update_project'])){ csrf_check();
     $_POST['to_date']   ?: null,
     $id
   ]);
-  $ok = "Proyecto actualizado ✅";
+  flash_redirect('ok', 'Proyecto actualizado ✅');
 }
 
 if(isset($_POST['delete_project'])){ csrf_check();
   $id = (int)($_POST['id'] ?? 0);
   $pdo->prepare("DELETE FROM dbo.projects WHERE id=?")->execute([$id]);
-  $ok = "Proyecto eliminado 🗑️";
+  flash_redirect('ok', 'Proyecto eliminado 🗑️');
 }
 
 if(isset($_POST['add_skill'])){ csrf_check();
   $lvl = strlen($_POST['level'] ?? '') ? (int)$_POST['level'] : null;
   $pdo->prepare("INSERT INTO dbo.skills(name, level, category) VALUES (?,?,?)")
       ->execute([ $_POST['name'] ?? '', $lvl, $_POST['category'] ?? null ]);
-  $ok = "Habilidad agregada ✅";
+  flash_redirect('ok', 'Habilidad agregada ✅');
 }
 
 if(isset($_POST['update_skill'])){ csrf_check();
@@ -323,13 +406,13 @@ if(isset($_POST['update_skill'])){ csrf_check();
   $lvl = strlen($_POST['level'] ?? '') ? (int)$_POST['level'] : null;
   $pdo->prepare("UPDATE dbo.skills SET name=?, level=?, category=? WHERE id=?")
       ->execute([ $_POST['name'] ?? '', $lvl, $_POST['category'] ?? null, $id ]);
-  $ok = "Habilidad actualizada ✅";
+  flash_redirect('ok', 'Habilidad actualizada ✅');
 }
 
 if(isset($_POST['delete_skill'])){ csrf_check();
   $id = (int)($_POST['id'] ?? 0);
   $pdo->prepare("DELETE FROM dbo.skills WHERE id=?")->execute([$id]);
-  $ok = "Habilidad eliminada 🗑️";
+  flash_redirect('ok', 'Habilidad eliminada 🗑️');
 }
 
 // ----------------- Datos para mostrar -----------------
@@ -411,6 +494,14 @@ if(isset($_GET['edit_skill'])){
       <a class="btn btn-sm btn-outline-danger" href="?logout=1">Logout</a>
     </div>
   </div>
+<?php
+  // Lee mensajes de ?ok/?err o de flash y luego los limpia
+  $ok  = $_GET['ok']  ?? null;  $ok  = $ok  ?: flash_take('ok');
+  $err = $_GET['err'] ?? null;  $err = $err ?: flash_take('err');
+
+  if (!empty($ok))  banner($ok,  'success');
+  if (!empty($err)) banner($err, 'danger');
+?>
 
   <?php if(!empty($ok)) banner($ok,'success'); ?>
 
@@ -474,11 +565,48 @@ if(isset($_GET['edit_skill'])){
       </div>
       </div>
 
+      
+
       <?php csrf_input(); ?>
       <button class="btn btn-brand mt-1" name="save_profile" value="1">Guardar perfil</button>
     </form>
   </div>
 </div>
+
+
+ <section class="shell panel-tilt mb-3">
+  <h3 class="h6 mb-3">Seguridad</h3>
+  <form method="post" class="row g-2">
+    <div class="col-md-4">
+      <label class="form-label">Contraseña actual</label>
+      <input type="password" name="current_password" class="form-control fancy-input" required>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Nueva contraseña</label>
+      <input
+        type="password"
+        name="new_password"
+        class="form-control fancy-input"
+        required
+        minlength="10"
+        pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+"
+        title="Mínimo 10 caracteres, con mayúsculas, minúsculas y dígitos">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Confirmar nueva</label>
+      <input type="password" name="new_password_confirm" class="form-control fancy-input" required>
+    </div>
+    <?php csrf_input(); ?>
+    <div class="col-12 d-flex gap-2 mt-1">
+      <button class="btn btn-brand" name="change_admin_password" value="1">Cambiar contraseña</button>
+      <span class="small text-secondary d-flex align-items-center">
+        Requisitos: ≥10 caracteres, mayúsculas, minúsculas y dígitos.
+      </span>
+    </div>
+  </form>
+</section>
+
+
 
 
     <!-- ================== Proyectos: crear/editar ================== -->
@@ -536,7 +664,7 @@ if(isset($_GET['edit_skill'])){
     </div>
   </div>
 
-  <div class="my-4 divider"></div>
+ 
 
   <!-- ================== Listado de proyectos ================== -->
   <section class="shell panel-tilt mb-3">
